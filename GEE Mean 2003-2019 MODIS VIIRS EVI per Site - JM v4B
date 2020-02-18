@@ -97,7 +97,6 @@ Export.table.toDrive({
   fileFormat: 'CSV'
 });
 
-
 //load the MODIS AQUA image collection
 var modisEVI = ee.ImageCollection('MODIS/006/MYD13Q1') //MYD13Q1.006 AQUA Vegetation Indices 16-Day Global 250m
     .filter(ee.Filter.dayOfYear(0, 365))
