@@ -1,8 +1,20 @@
 ## ----install-packages, message = FALSE-----------------------------------
 # uncomment for install
-# install.packages("devtools")
-# install.packages("maps")
+# install.packages("lubridate")
+# install.packages("changepoint")
+# install.packages("readr")
+# install.packages("ggplot2")
 # install.packages("tidyverse")
+##
+## Script for producing smoothed EVI phenophase change-point transitions from 8-day composite time series MODIS Terra and Aqua data 
+## produced from Earth Engine script "GEE_Mean_MODIS_EVI_per_site" 
+## Input CSV table must contain three columns of data in following format: 
+##
+## Day	2002	    2003	    2004	    2005	    2006	    2007	    2008	    2009	    2010	    2011	    2012	    2013	    2014	    2015	    2016	    2017	    2018
+## 1	  0.224136	0.169765	0.248993	0.228492	0.236967	0.237593	0.211651	0.186319	0.250911	0.297741	0.241411	0.223491	0.277903	0.241074	0.236391	0.225876	0.216436
+## 9	  0.219643	0.180689	0.225491	0.220534	0.236496	0.23885	  0.206401	0.185824	0.234282	0.244129	0.247069	0.22869	  0.257781	0.226136	0.259102	0.215989	0.213553
+## 17	  0.22022	  0.186139	0.204644	0.213796	0.239709	0.236334	0.198796	0.18518	  0.220915	0.205435	0.250088	0.230804	0.23639	  0.212631	0.2714	  0.210892	0.212738
+## ...
 
 library(readr)
 library(ggplot2)
@@ -18,7 +30,7 @@ EVIFileName = "D01_HARV"
 year_to_process <- '2002'
 penalty <- 0.005
 seg_length <- 14
-interpolate <- 1 # 0 for 'No', 1 for 'Yes'
+interpolate <- 0 # 0 for 'No', 1 for 'Yes'
 ####
 
 ## Standard Parameters
@@ -71,8 +83,8 @@ if(interpolate == 1){
 
 if(interpolate == 1){
 # Perform cubic spline interpolation to convert NA values to 1 day "EVI" increments 
-  df_approx <- zoo::na.spline(df_gather, na.rm = FALSE)
-  df_gather <- as.data.frame(df_approx)
+    df_approx <- zoo::na.spline(df_gather, na.rm = FALSE)
+    df_gather <- as.data.frame(df_approx)
   } else {
 }
 
