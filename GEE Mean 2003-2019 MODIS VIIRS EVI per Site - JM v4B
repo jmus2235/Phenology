@@ -1,10 +1,10 @@
-// Earth Engine script to produce time series of 8-day composite mean EVI estimates from MODIS and VIIRS within ROIs defined by 
-//  NEON AOP flight boxes, TOS boundaries, vegetation types, etc. 
+// Earth Engine script to produce time series of 8-day composite mean EVI estimates from MODIS and EVI2 from VIIRS within 
+//  ROIs defined by NEON AOP flight boxes, TOS boundaries, vegetation types, etc. 
 //  Region of Interests (ROI) asset tables must be uploaded from shapefiles into GEE and imported into script. 
 //  Example below shows variable siteID defined as the JORN flight box. 
-//  Output from script are 3 three column tables: a 16-day composite from MODIS (Terra) and a 16-day composite MODIS (Aqua)
-//  to be combined into a single table; and a third table from VIIRS (already 8-day composite). These tables are used as input
-//  into R scripts "MODIS_EVI_processing_v1-2.R" and "VIIRS_EVI_processing_v1-2.R", respectively. 
+//  Output from this script are 3 three-column tables: a 16-day composite from MODIS (Terra) and a 16-day composite MODIS (Aqua)
+//  to be combined into a single table 8-day composite table; and a third table from VIIRS (already 8-day composite). 
+//  These tables are used as input into R scripts "MODIS_EVI_processing_v1-2.R" and "VIIRS_EVI_processing_v1-2.R", respectively. 
 
 var siteID = JORN
 var EVIstartDate = ('2003-01-01')
