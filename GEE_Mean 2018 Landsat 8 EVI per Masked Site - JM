@@ -144,4 +144,3 @@ Map.addLayer(L8TOA, vizParams)
 //Map.addLayer(L8EVImask, colorizedVis, 'L8EVImask')
 //Display site table 
 Map.addLayer(BART)
-
