@@ -58,7 +58,6 @@ var maskClouds = function(image) {
   return image.addBands(cloud)
 };
 
-
 // Start with a MODIS TERRA image collection for an X day period
 //var collection = ee.ImageCollection('MODIS/006/MOD09GA')
 //                   .filterDate('2001-01-01', '2009-12-31');
