@@ -185,4 +185,3 @@ df_EVI_final_spread <- df_EVI_final_spread[,-2]
 # write output to a .csv file
 write.csv(df_EVI_final_spread, file = (sprintf("~/R_Scripts/MODIS/data_out/%s_MODIS_%s_EVI_QAbit_%s_Final%s_SPAN_%s.csv",EVIFileName, sensor, QAbits, YEAR, loessSPAN)))
 
-
