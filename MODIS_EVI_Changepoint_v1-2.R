@@ -224,7 +224,6 @@ plot(cpt_man,cpt.width=.5)
 jpeg(file=sprintf("~/R_Scripts/phenocamr-master/data_out/%s_DB_EVI_CPTS_%s_penalty%s_segmentlength%s.jpg",EVIFileName, year_to_process, penalty, seg_length))
 plot(cpt_man,cpt.width=.5, main=year_to_process)
 dev.off()
-
 }
 
 # Display latest year rising change.point locations
