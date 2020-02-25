@@ -1,13 +1,13 @@
 ##############################################################################################
 #' @LANDSAT_EVI_Changepoint_v1-3.R
-
+#
 #' @author
 #' John Musinsky 1 \emailjmusinsky@battelleecology.org}
-
+#
 #' @description 
 ## Script for producing smoothed EVI phenophase change-point transitions from 8-day composite time series Landsat 8 Collection 1  
 ## Tier 1 8-Day EVI Composite produced from Earth Engine script "GEE_Mean 2018 Landsat 8 EVI per Masked Site - JM" 
-
+#
 #' @param inp01 
 ## Input CSV table must contain three columns of data in following format: 
 ##
@@ -16,26 +16,24 @@
 ## 9	  0.219643	0.180689	0.225491	0.220534	0.236496	0.23885	  0.206401	0.185824	0.234282	0.244129	0.247069	0.22869	  0.257781	0.226136	0.259102	0.215989	0.213553
 ## 17	  0.22022	  0.186139	0.204644	0.213796	0.239709	0.236334	0.198796	0.18518	  0.220915	0.205435	0.250088	0.230804	0.23639	  0.212631	0.2714	  0.210892	0.212738
 ## ... 
-
-#' @return Description of what the function returns [units] 
-
+#
+#' @return  
+## Returns CSV table that includes the DOY, Date, and Smoothed_Mean_EVI values for significant change-point transitions in phenology curve 
+#
 #' @references
 #' License: (example) GNU AFFERO GENERAL PUBLIC LICENSE Version 3, 19 November 2007
-
+#
 #' @keywords keyword 1, keyword 2
-
-#' @examples Example code for using your function
-
+#
 #' @seealso References to other related functions
-
+#
 #' @export
-
+#
 # changelog and author contributions / copyrights
-#   Awesome Author 1 (2017-02-14)
+#   Author 1 (2017-02-14)
 #     original creation
-#   Awesome Author 2 (2017-02-15)
-#     Made some awesome changes
 ##############################################################################################
+
 ## ----install-packages, message = FALSE-----------------------------------
 # uncomment for install
 # install.packages("devtools")
