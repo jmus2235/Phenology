@@ -18,14 +18,14 @@
 ## ... 
 #
 #' @return  
-## Returns CSV table that includes the DOY, Date, and Smoothed_Mean_EVI values for significant change-point transitions in phenology curve 
+## Returns CSV table that includes the DOY, Date, and Smoothed_Mean_EVI values for significant change-point transitions in the mean phenology curve 
 #
 #' @references
-#' License: (example) GNU AFFERO GENERAL PUBLIC LICENSE Version 3, 19 November 2007
+#' License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3, 19 November 2007
 #
-#' @keywords keyword 1, keyword 2
+#' @keywords phenology, EVI, Landsat
 #
-#' @seealso References to other related functions
+#' @seealso "GEE_Mean 2018 Landsat 8 EVI per Masked Site - JM" GEE script
 #
 #' @export
 #
