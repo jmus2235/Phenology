@@ -1,3 +1,45 @@
+##############################################################################################
+#' @MODIS_EVI_processing_v1-2.R
+#
+#' @author
+#' John Musinsky 1 \emailjmusinsky@battelleecology.org}
+#
+#' @description 
+## Script for processing smoothed EVI 8-day composite time series from high-quality (QA-bit=0) MODIS Terra and Aqua data 
+## produced for ROI's from Earth Engine script "GEE Mean 2003-2019 MODIS VIIRS EVI per Site - JM v4B"  
+#
+#' @param inp01 
+## Input CSV table must contain three columns of data in following format: 
+##
+## system:index	date	      mean
+## 2003_01_01   1.04138E+12	885.0715865
+## 2003_01_17	  1.04276E+12	867.7747245
+## 2003_02_02	  1.04414E+12	869.3154614
+## ...
+#
+#' @return  
+## Returns CSV table that includes the DOY, and smoothed, gap-filled EVI values for each year in the time-series 
+#	DOY	2003	      2004	      2005	      2006	      2007	      2008	      2009	      2010	      2011	      2012	      2013	      2014	      2015	      2016	      2017	      2018	      2019
+# 1	  0.087721705	0.087105282	0.091742409	0.095520278	0.111711909	0.091755388	0.099825213	0.082403387	0.098211333	0.084425081	0.087809931	0.101072331	0.090517611	0.083372446	0.088578561	0.101498778	0.087828407
+#	9	  0.088112414	0.087409603	0.091953517	0.096347006	0.108610876	0.092284827	0.099889071	0.081321816	0.098195721	0.084413471	0.088865979	0.100576407	0.08887948	0.084609433	0.087328277	0.100147609	0.089110182
+#	17	0.088655321	0.08760886	0.092985998	0.09695912	0.106588358	0.092669246	0.100009514	0.08076124	0.098156793	0.084527096	0.0898208	0.100191322	0.087696089	0.085865051	0.086641346	0.098806365	0.090082507
+#	25	0.089353914	0.087657481	0.094852792	0.097384861	0.105627903	0.092933187	0.100168628	0.080665651	0.09810681	0.08479587	0.09065464	0.099920512	0.086953476	0.087106351	0.086530068	0.097485657	0.090747864
+#	33	0.090233421	0.087576017	0.097519494	0.097666464	0.105734205	0.093154606	0.100365457	0.08101555	0.098059797	0.085239836	0.091365778	0.099790358	0.086640967	0.088331317	0.087079731	0.096274064	0.091261946
+#
+#' @references
+#' License: GNU AFFERO GENERAL PUBLIC LICENSE Version 3, 19 November 2007
+#
+#' @keywords phenology, EVI, MODIS
+#
+#' @seealso "GEE Mean 2003-2019 MODIS VIIRS EVI per Site - JM v4B" GEE script
+#
+#' @export
+#
+# changelog and author contributions / copyrights
+#   Author 1 (2017-02-14)
+#     original creation
+##############################################################################################
+
 ## ----install-packages, message = FALSE-----------------------------------
 # uncomment for install
 # install.packages("lubridate")
