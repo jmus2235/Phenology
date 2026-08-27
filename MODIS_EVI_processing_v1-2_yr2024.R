@@ -24,10 +24,10 @@ library(tidyverse)
 
 # Set working directory
 setwd("~/R_Scripts/MODIS/data")
-
+  
 #### USER-SPECIFIED PARAMETERS
-EVIFileName = 'D05_WABI_FB_Detailed_VIq02_MOD13Q1_2022'
-QAbits = '01'
+EVIFileName = 'D17_VAFB_Detailed_01VIq_MOD13Q1_250m_2025'
+QAbits = '0'
 sensor = 'TERRA_AQUA'
 #sensor = 'TERRA'
 #sensor = 'AQUA'
@@ -127,7 +127,7 @@ df_EVI_final <- data.frame(ID=numeric(),
                            stringsAsFactors=FALSE)
 
 # Set up FOR loop to process each year sequentially
-for (YEAR in c(2003:2022)) {
+for (YEAR in c(2003:2025)) {
   # Filter to specified year
   year_to_process = YEAR
   df_year <- df_gather %>% 

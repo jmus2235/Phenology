@@ -1,0 +1,24 @@
+# --- R session state (never commit: .Rhistory has previously held a plaintext DB token) ---
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# --- Input / output data: scripts only in this repo ---
+data/
+data_out/
+
+# Defensive: any data file dropped at the repo root or in a new output folder
+*.csv
+*.xlsx
+*.xls
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.rds
+*.RDS
+*.zip
+*.log

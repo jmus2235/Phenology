@@ -1,20 +1,8 @@
 ## ----install-packages, message = FALSE-----------------------------------
 # uncomment for install
-# install.packages("lubridate")
-# install.packages("changepoint")
-# install.packages("readr")
-# install.packages("ggplot2")
+# install.packages("devtools")
+# install.packages("maps")
 # install.packages("tidyverse")
-##
-## Script for processing smoothed EVI 8-day composite time series from high-quality (QA-bit=0) MODIS Terra and Aqua data 
-## produced from Earth Engine script "Mean 2003-2019 MODIS VIIRS EVI per Site - JM v4B" 
-## Input CSV table must contain three columns of data in following format: 
-##
-## system:index	date	      mean
-## 2003_01_01   1.04138E+12	885.0715865
-## 2003_01_17	  1.04276E+12	867.7747245
-## 2003_02_02	  1.04414E+12	869.3154614
-## ...
 
 library(readr)
 library(ggplot2)
@@ -26,54 +14,21 @@ library(tidyverse)
 setwd("~/R_Scripts/MODIS/data")
 
 #### USER-SPECIFIED PARAMETERS
-EVIFileName = 'D05_WABI_FB_Detailed_VIq02_MOD13Q1_2022'
-QAbits = '01'
+EVIFileName = 'D03_DSNY'
+QAbits = '0'
 sensor = 'TERRA_AQUA'
 #sensor = 'TERRA'
 #sensor = 'AQUA'
 year_to_process <- '2003'
-loessSPAN <- 0.25
+loessSPAN <- 0.30
 interpolate <- 0 # 0 for 'No', 1 for 'Yes'
 ####
 
 # Read csv file
 df <- read.csv(file=sprintf("%s_MODIS_%s_EVI_QAbit_%s.csv",EVIFileName, sensor, QAbits), stringsAsFactors = FALSE)
 
-# Re-scale EVI data
-df$MEAN_EVI <- df$mean*0.0001
-
-# Separate YEAR, MONTH and DAY and convert to numeric
-df <- df %>% separate(system.index, c("YEAR", "MONTH", "DAY"), sep="_")
-df$YEAR <- as.numeric(df$YEAR)
-df$MONTH <- as.numeric(df$MONTH)
-df$DAY <- as.numeric(df$DAY)
-
 # Sort data frame by YEAR, MONTH, DAY
-df <- df[order(df$YEAR, df$MONTH, df$DAY),]
-
-# Remove old date column
-df <- df[-4]
-
-# Add a new reformatted DATE column
-df$DATE <- with(df, ymd(sprintf('%04d%02d%02d', YEAR, MONTH, DAY)))
-
-# Add a  DOY column
-df$DOY <- yday(df$DATE)
-
-# Rename "mean" column to EVI
-df$EVI <- df$mean
-
-#Remove column
-df <- df[-4]
-
-# Reorder columns
-df <- df %>% select(MEAN_EVI, everything())
-df <- df %>% select(EVI, everything())
-df <- df %>% select(DOY, everything())
-df <- df %>% select(DATE, everything())
-df <- df %>% select(DAY, everything())
-df <- df %>% select(MONTH, everything())
-df <- df %>% select(YEAR, everything())
+df_sorted <- df[order(YEAR, MONTH, DAY)]
 
 if(interpolate == 1){
   # Create a list of 365 days and merge with dataframe, adding NA's to days without MODIS EVI data  
@@ -112,7 +67,7 @@ if(interpolate == 1){
 df_approx <- zoo::na.spline(df_gather, na.rm = FALSE)
 df_gather <- as.data.frame(df_approx)
 
-# Remove ID field
+# Remve ID field
 df_gather <- df_gather[-4]
 ### Re-format table back to original layout in preparation for inserting days or smoothing
 df_gather <- df_gather %>% group_by(YEAR) %>% mutate(ID = row_number())
@@ -127,7 +82,7 @@ df_EVI_final <- data.frame(ID=numeric(),
                            stringsAsFactors=FALSE)
 
 # Set up FOR loop to process each year sequentially
-for (YEAR in c(2003:2022)) {
+for (YEAR in c(2003:2019)) {
   # Filter to specified year
   year_to_process = YEAR
   df_year <- df_gather %>% 

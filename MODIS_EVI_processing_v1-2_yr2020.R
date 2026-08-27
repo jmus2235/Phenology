@@ -26,8 +26,8 @@ library(tidyverse)
 setwd("~/R_Scripts/MODIS/data")
 
 #### USER-SPECIFIED PARAMETERS
-EVIFileName = 'D05_WABI_FB_Detailed_VIq02_MOD13Q1_2022'
-QAbits = '01'
+EVIFileName = 'D20_PUUM_FB_Summary_2020'
+QAbits = '0'
 sensor = 'TERRA_AQUA'
 #sensor = 'TERRA'
 #sensor = 'AQUA'
@@ -112,7 +112,7 @@ if(interpolate == 1){
 df_approx <- zoo::na.spline(df_gather, na.rm = FALSE)
 df_gather <- as.data.frame(df_approx)
 
-# Remove ID field
+# Remve ID field
 df_gather <- df_gather[-4]
 ### Re-format table back to original layout in preparation for inserting days or smoothing
 df_gather <- df_gather %>% group_by(YEAR) %>% mutate(ID = row_number())
@@ -127,7 +127,7 @@ df_EVI_final <- data.frame(ID=numeric(),
                            stringsAsFactors=FALSE)
 
 # Set up FOR loop to process each year sequentially
-for (YEAR in c(2003:2022)) {
+for (YEAR in c(2003:2020)) {
   # Filter to specified year
   year_to_process = YEAR
   df_year <- df_gather %>% 
