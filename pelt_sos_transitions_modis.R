@@ -66,6 +66,7 @@ suppressPackageStartupMessages({
   library(readr)
   library(dplyr)
   library(changepoint)
+  library(ggplot2)
 })
 
 # ---------------------------------------------------------------- configuration
@@ -132,8 +133,10 @@ MEAN_CURVE_YEARS <- as.integer(Sys.getenv("PELT_MEAN_CURVE_YEARS_START", "2015")
 
 # ---------------------------------------------------------------------- helpers
 
-args     <- commandArgs(trailingOnly = TRUE)
-opt_site <- sub("^--site=", "", grep("^--site=", args, value = TRUE))
+args        <- commandArgs(trailingOnly = TRUE)
+opt_plots   <- !("--no-plots" %in% args)
+opt_dump    <- "--dump-curves" %in% args
+opt_site    <- sub("^--site=", "", grep("^--site=", args, value = TRUE))
 if (length(opt_site) == 0) opt_site <- NULL
 
 msg <- function(...) cat(sprintf(...), "\n", sep = "")
@@ -332,6 +335,82 @@ load_site_curves_modis <- function(site_df) {
   d
 }
 
+# ---------------------------------------------------------------------- plotting
+
+plot_site <- function(site_key, curves, mean_curve, res, annual, out_path) {
+  ann_lab <- function(v) if (is.na(v)) "NA" else sprintf("%.0f", v)
+  sub <- sprintf(
+    "%s | veg %s | SOF thr %.0f%% | pen %.2f, minseglen %d obs (%d d)  ||  SOS %s  EOS %s  SOF %s",
+    site_key, res$veg_type, res$pg_end_thrshld, res$pen_value,
+    res$min_seg_obs, res$min_seg_obs * COMPOSITE_DAYS,
+    ann_lab(res$sos_doy), ann_lab(res$eos_doy), ann_lab(res$sof_doy))
+
+  p <- ggplot() +
+    geom_line(data = curves,
+              aes(x = doy, y = fitted, group = year),
+              colour = "grey62", linewidth = 0.3, alpha = 0.8) +
+    geom_line(data = mean_curve,
+              aes(x = doy, y = fitted),
+              colour = "black", linewidth = 1.3)
+
+  if (is.finite(res$baseline_evi)) {
+    p <- p + geom_hline(yintercept = res$baseline_evi,
+                        colour = "grey40", linetype = "dotted", linewidth = 0.4)
+  }
+  if (is.finite(res$thr_eos_evi)) {
+    p <- p + geom_hline(yintercept = res$thr_eos_evi,
+                        colour = "#2166ac", linetype = "dashed", linewidth = 0.4)
+  }
+  if (is.finite(res$thr_sof_evi) &&
+      !isTRUE(all.equal(res$thr_sof_evi, res$thr_eos_evi))) {
+    p <- p + geom_hline(yintercept = res$thr_sof_evi,
+                        colour = "#b2182b", linetype = "dashed", linewidth = 0.4)
+  }
+
+  vl <- data.frame(
+    doy   = c(res$sos_doy, res$eos_doy, res$sof_doy),
+    label = c("SOS (PELT)", "EOS 90%", sprintf("SOF %.0f%%", res$pg_end_thrshld)),
+    col   = c("#1b7837", "#2166ac", "#b2182b"),
+    stringsAsFactors = FALSE
+  )
+  vl <- vl[is.finite(vl$doy), ]
+  if (nrow(vl) > 0) {
+    p <- p +
+      geom_vline(data = vl, aes(xintercept = doy), colour = vl$col,
+                 linewidth = 0.7) +
+      geom_text(data = vl,
+                aes(x = doy, y = -Inf,
+                    label = sprintf("%s\n%.0f", label, doy)),
+                colour = vl$col, vjust = -0.3, hjust = -0.05,
+                size = 2.9, lineheight = 0.9)
+  }
+
+  # per-year PELT SOS values, so the interannual spread is visible
+  ann_sos <- annual$sos_doy[is.finite(annual$sos_doy)]
+  if (length(ann_sos) > 0) {
+    p <- p + geom_rug(data = data.frame(doy = ann_sos),
+                      aes(x = doy), sides = "b",
+                      colour = "#1b7837", alpha = 0.8, linewidth = 0.6)
+  }
+
+  p <- p +
+    scale_x_continuous(breaks = seq(0, 360, 30), limits = c(0, 366),
+                       expand = expansion(mult = c(0.01, 0.01))) +
+    labs(title = sprintf("%s - PELT-derived phenometrics (MODIS EVI, 8-day composites, 2003-2024)",
+                         site_key),
+         subtitle = sub,
+         x = "Day of year", y = "EVI (fitted)",
+         caption = paste("Thin grey = annual fitted curves; thick black = mean curve.",
+                         "Green rug = per-year PELT SOS.",
+                         "Dotted = baseline (pre-break segment median);",
+                         "dashed = EOS/SOF thresholds.")) +
+    theme_bw(base_size = 10) +
+    theme(plot.subtitle = element_text(size = 8),
+          plot.caption  = element_text(size = 7, colour = "grey35", hjust = 0))
+
+  ggsave(out_path, p, width = 10, height = 6, dpi = 150)
+}
+
 # -------------------------------------------------------------------------- main
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -347,6 +426,7 @@ if (length(sites) == 0) stop("no sites selected")
 
 mean_rows   <- list()
 annual_rows <- list()
+curve_rows  <- list()
 
 for (site_key in sites) {
   site_df <- ts_all %>% filter(site == site_key)
@@ -375,6 +455,12 @@ for (site_key in sites) {
     arrange(doy)
   n_doy_all <- nrow(mc)
   mc <- mc %>% filter(n_yr >= MIN_YRS_PER_DOY)
+
+  # ---- store the exact masked mean curve for --dump-curves -------------------
+  if (opt_dump) {
+    curve_rows[[site_key]] <- data.frame(site_key = site_key, doy = mc$doy,
+                                         fitted = mc$fitted, stringsAsFactors = FALSE)
+  }
 
   res <- derive_transitions(mc$doy, mc$fitted, sof_frac, pen_value)
 
@@ -419,6 +505,16 @@ for (site_key in sites) {
                                min(mc$n_yr[mc$doy <= res$sos_doy]) else NA_integer_
   mean_rows[[site_key]] <- as.data.frame(res, stringsAsFactors = FALSE)
 
+  if (opt_plots) {
+    tryCatch(
+      plot_site(site_key, curves, mc, res, ann_df,
+                file.path(OUT_DIR, sprintf("%s_pelt.png", site_key))),
+      error = function(e) {
+        warning(sprintf("Plot failed for %s: %s", site_key, conditionMessage(e)))
+      }
+    )
+  }
+
   msg("  %-10s veg %-4s (%s) SOF %2.0f%%  SOS %-5s EOS %-5s SOF %-5s  (annual SOS sd %.1f d) %s",
       site_key, ifelse(is.na(veg_type), "NA", veg_type), veg_source, sof_frac * 100,
       ifelse(is.na(res$sos_doy), "NA", sprintf("%.0f", res$sos_doy)),
@@ -444,6 +540,11 @@ annual_out <- bind_rows(annual_rows) %>% arrange(site_key, year)
 
 write_csv(mean_out,   file.path(OUT_DIR, "pelt_transitions_mean_modis.csv"))
 write_csv(annual_out, file.path(OUT_DIR, "pelt_transitions_annual_modis.csv"))
+
+if (opt_dump) {
+  curves_out <- bind_rows(curve_rows) %>% arrange(site_key, doy)
+  write_csv(curves_out, file.path(OUT_DIR, "pelt_mean_curves_modis.csv"))
+}
 
 msg("")
 msg("=== INPUT / PROCESSING SUMMARY ===")
@@ -664,6 +765,10 @@ msg("  pelt_transitions_mean_modis.csv    (%d rows)", nrow(mean_out))
 msg("  pelt_transitions_annual_modis.csv  (%d rows)", nrow(annual_out))
 msg("  pelt_modis_comparison.csv          (%d rows: %d mean-arm + %d annual-arm)",
     nrow(comparison_out), nrow(cmp_mean), nrow(cmp_ann))
+if (opt_dump) {
+  msg("  pelt_mean_curves_modis.csv         (%d rows, %d sites)",
+      nrow(curves_out), length(unique(curves_out$site_key)))
+}
 
 # ============================================================================
 # EXPERIMENT: does matching the mean-curve pooling window to the manual
