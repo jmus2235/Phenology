@@ -23,3 +23,9 @@ pelt_out/
 *.RDS
 *.zip
 *.log
+
+# --- Exceptions: hand-transcribed reference INPUTS, not pipeline outputs ---
+# These are not regenerable by running a script -- they were transcribed by hand
+# from the author's Excel workbooks and are the ground truth the cmp/ scripts
+# validate against, so they must be versioned with the scripts that consume them.
+!cmp/manual_sos_TEMPLATE.csv
