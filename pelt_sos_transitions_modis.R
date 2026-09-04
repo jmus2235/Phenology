@@ -27,6 +27,26 @@
 # EOS and SOF are linearly interpolated between 8-day composites.  SOS is NOT
 # -- it is quantised to the 8-day grid.
 #
+# Seasonal-prior peak selection (identical to HLS; OFF BY DEFAULT -- screened,
+# implemented, and scored NET WORSE on EOS/SOF; see the toggle block below for
+# the numbers and the mechanism.  Opt in with PELT_SEASONAL_PRIOR=1):
+#   find_peaks() identifies prominent, well-separated candidates (MIN_PEAK_SEP
+#   and MIN_PEAK_PROM unchanged).  Instead of taking the GLOBAL MAXIMUM, take
+#   the candidate at smallest CIRCULAR DOY distance to the site's own
+#   leave-one-out circular-median peak DOY.  No new tuning constant -- the
+#   prior is the site's own central tendency.  LEAVE-ONE-OUT prevents
+#   self-confirmation: the year being judged does not contribute to its own
+#   prior.  Circular distance is required because DOY 5 and DOY 360 are 10 days
+#   apart, not 355.  The prior is built from GLOBAL-MAX peaks (not
+#   already-re-picked peaks) so it reflects the data, not the rule's own
+#   feedback.  At a tie (two candidates equally distant), keep the higher-EVI
+#   one (stable to current behaviour).  Inert when n_peaks == 1 (the rule can
+#   only choose among detected candidates; the 5 known cases where the true
+#   peak was never DETECTED are a prominence problem, out of scope).  Reverts
+#   to global max if fewer than 2 other years' peaks exist, and -- by default --
+#   because the rule is disabled; enable per arm with PELT_SEASONAL_PRIOR=1
+#   (annual arm) or PELT_SEASONAL_PRIOR_MEAN=1 (mean curve only).
+#
 # INPUT DIFFERENCE FROM HLS (see task brief for the audit that justifies this):
 #   MODIS\data_out\ (528 files / 184 ambiguous site-units) is NOT used.
 #   Input is the PhenoFlight DB export
@@ -80,6 +100,24 @@ TS_FILE     <- file.path(EXPORT_DIR, "modis_evi_timeseries.csv")
 MEAN_REF    <- file.path(EXPORT_DIR, "modis_mean_transitions.csv")
 ANNUAL_REF  <- file.path(EXPORT_DIR, "modis_annual_transitions.csv")
 
+# ---- seasonal-prior peak selection ------------------------------------------
+# Toggles for the seasonal-prior rule.  Both default OFF -- opt in with
+# PELT_SEASONAL_PRIOR=1 / PELT_SEASONAL_PRIOR_MEAN=1.  Identical to HLS.
+#
+# The rule passed its peak-SELECTION screen but FAILED when scored on EOS and
+# SOF: mean absolute error against the manual record rose on 3 of 4 sensor x
+# limb measures (MODIS SOF 7.74 -> 8.26, HLS EOS 4.59 -> 5.17, HLS SOF
+# 7.58 -> 8.04; only MODIS EOS improved, 4.42 -> 4.34).  The cause is
+# structural: at the crossing_doy() calls in derive_transitions() the peak index
+# is a SEARCH-INTERVAL BOUND, not a scalar offset, so on a curve with two maxima
+# the same threshold is crossed four times and the peak alone decides which pair
+# is reported.  Date error is therefore quantised to the mode separation, and
+# wins and losses use the identical operation -- no tuning keeps one and drops
+# the other.  Kept here to reproduce the negative result.
+SEASONAL_PRIOR      <- !identical(Sys.getenv("PELT_SEASONAL_PRIOR", "0"), "0")
+SEASONAL_PRIOR_MEAN <- !identical(Sys.getenv("PELT_SEASONAL_PRIOR_MEAN", "0"), "0")
+YEAR_LEN <- 366   # circular distance / circular median operate on this circle
+
 COMPOSITE_DAYS <- 8           # cadence of the input series (unchanged from HLS)
 MIN_SEG_OBS    <- 3           # PELT minseglen, in observations (24 d)
 PEN_DEFAULT    <- 0.2         # non-DB veg types
@@ -121,6 +159,32 @@ VEG_TYPE_OVERRIDES <- c(CLBJ = "DB")
 
 KNOWN_OUTLIER_SITES <- c("STER", "SJER", "LAJA")  # context only, see header
 
+# ---- Calendar-year framing guard -------------------------------------------
+# Author, 2026-09-01: "SJER is an exception where PELT should not be used in
+# its current code formulation ... the baseline for SOS calculation occurs in
+# the prior year to the peak greenness window."
+#
+# Everything downstream of the changepoint -- baseline, amplitude, and both
+# thresholds -- assumes the dormant floor preceding a peak is present in the
+# same DOY 1-365 slice.  At a Mediterranean winter-annual site it is not: the
+# floor belonging to the spring peak fell in the previous December, so the
+# detector substitutes a mid-season value for dormancy, inflating the baseline
+# and halving the amplitude.  This is a coordinate-system failure, not a
+# detector failure, and the 2nd-derivative method fails on it identically.
+#
+# Detection (see cmp/yearframe_screen_modis.R, and the HLS twin for the two
+# rejected alternatives -- both of which flagged the Arctic/boreal snow sites,
+# where winter fitted EVI is negative, while MISSING SJER):
+#
+#   baseline_gap = ( min(EVI over DOY 1..peak) - min(EVI over the year) )
+#                  / ( max - min )
+#
+# 0 at a conventional site.  Measured 0.481 at SJER here and 0.522 on HLS --
+# the only site over 0.25 on either sensor, next highest 0.202 and 0.238.
+# Above the cut the transition dates are withheld (NA + flag), not silently
+# emitted: PELT as currently formulated has no defensible answer here.
+BASELINE_GAP_MAX <- as.numeric(Sys.getenv("PELT_BASELINE_GAP_MAX", "0.25"))
+
 # ---- one-off experiment: does matching the mean curve's pooling window to
 # the manual reference's 2015-2024 window change headline-arm agreement? ----
 # modis_mean_transitions.csv carries num_years=10 (author's dates are built
@@ -132,6 +196,26 @@ MEAN_CURVE_YEARS <- as.integer(Sys.getenv("PELT_MEAN_CURVE_YEARS_START", "2015")
                      as.integer(Sys.getenv("PELT_MEAN_CURVE_YEARS_END",   "2024"))
 
 # ---------------------------------------------------------------------- helpers
+
+#' Circular distance between two DOYs, in days, on a YEAR_LEN circle.
+#' Verbatim from HLS/cmp/seasonal_prior_test.R (YEAR_LEN 366).
+circ_dist <- function(a, b) {
+  d <- abs(a - b) %% YEAR_LEN
+  pmin(d, YEAR_LEN - d)
+}
+
+#' Circular median: the candidate value minimising total circular distance to
+#' the sample.  Exact (searches the sample itself), robust, and needs no
+#' distributional assumption.  The arithmetic median is wrong on a circle
+#' because DOY 5 and DOY 360 are 10 days apart, not 355.
+#' Verbatim from HLS/cmp/seasonal_prior_test.R.
+circ_median <- function(x) {
+  x <- x[is.finite(x)]
+  if (!length(x)) return(NA_real_)
+  if (length(x) == 1) return(x[1])
+  tot <- vapply(x, function(c0) sum(circ_dist(x, c0)), numeric(1))
+  x[which.min(tot)]
+}
 
 args        <- commandArgs(trailingOnly = TRUE)
 opt_plots   <- !("--no-plots" %in% args)
@@ -178,7 +262,8 @@ find_peaks <- function(doy, y, min_sep = MIN_PEAK_SEP,
     primary_idx = picked[1],
     n_peaks     = length(picked),
     second_doy  = if (length(picked) >= 2) doy[picked[2]] else NA_real_,
-    second_evi  = if (length(picked) >= 2) y[picked[2]]   else NA_real_
+    second_evi  = if (length(picked) >= 2) y[picked[2]]   else NA_real_,
+    cand_idx    = picked   # full candidate set, decreasing EVI order
   )
 }
 
@@ -232,12 +317,16 @@ crossing_doy <- function(doy, y, thr, from, to, dir = c("up", "down")) {
 }
 
 #' Full SOS -> baseline -> amplitude -> EOS/SOF chain for one curve.
-#' Verbatim port from HLS.
+#' Verbatim port from HLS (plus seasonal-prior additions).
 derive_transitions <- function(doy, y, sof_frac, pen_value,
-                               min_seg = MIN_SEG_OBS) {
+                               min_seg = MIN_SEG_OBS, prior_doy = NA_real_) {
   flags <- character(0)
+  # `extra` OVERRIDES the NA template.  It used to be c()'d onto it, which
+  # appends rather than replaces: the result carried two `peak_doy` entries and
+  # as.data.frame() renamed the second to `peak_doy.1`, so every diagnostic an
+  # early return tried to preserve was silently dropped in favour of the NA.
   na_row <- function(extra = list()) {
-    c(list(peak_doy = NA_real_, peak_evi = NA_real_, n_peaks = NA_integer_,
+    base <- list(peak_doy = NA_real_, peak_evi = NA_real_, n_peaks = NA_integer_,
            second_peak_doy = NA_real_, sos_doy = NA_real_,
            sos_break_index = NA_integer_, n_breaks = NA_integer_,
            n_breaks_trimmed = NA_integer_,
@@ -245,7 +334,11 @@ derive_transitions <- function(doy, y, sof_frac, pen_value,
            baseline_n_obs = NA_integer_, amplitude = NA_real_,
            thr_eos_evi = NA_real_, eos_doy = NA_real_,
            thr_sof_evi = NA_real_, sof_doy = NA_real_,
-           window_days = NA_real_), extra)
+           window_days = NA_real_, baseline_gap = NA_real_,
+           prior_doy = NA_real_, peak_doy_globalmax = NA_real_,
+           prior_switched = NA_integer_, n_peak_cands = NA_integer_)
+    base[names(extra)] <- extra
+    base
   }
 
   if (length(y) < MIN_LIMB_OBS) {
@@ -256,13 +349,48 @@ derive_transitions <- function(doy, y, sof_frac, pen_value,
   }
 
   pk <- find_peaks(doy, y)
-  pidx <- pk$primary_idx
-  if (is.na(pidx)) return(na_row(list(flags = "no_peak")))
+  pidx_globalmax <- pk$primary_idx
+  if (is.na(pidx_globalmax)) return(na_row(list(flags = "no_peak",
+                                                 prior_doy = prior_doy,
+                                                 n_peak_cands = length(pk$cand_idx))))
+
+  # Seasonal-prior peak selection: choose the candidate nearest to the prior.
+  # Only switch from global max if: (1) the rule is enabled, (2) a finite prior
+  # exists, and (3) there are at least 2 candidates to choose from.  which.min
+  # returns the FIRST minimum, and cand_idx is ordered by decreasing EVI, so an
+  # exact tie keeps the higher-EVI candidate (stable to current behaviour).
+  pidx <- pidx_globalmax   # default: unchanged
+  if (SEASONAL_PRIOR && is.finite(prior_doy) && length(pk$cand_idx) >= 2) {
+    pidx <- pk$cand_idx[which.min(circ_dist(doy[pk$cand_idx], prior_doy))]
+  }
+  prior_switched <- as.integer(!identical(pidx, pidx_globalmax))
   if (pk$n_peaks > 1) flags <- c(flags, sprintf("multimodal_n%d", pk$n_peaks))
 
   if (pidx < MIN_LIMB_OBS) {
     return(na_row(list(flags = paste(c(flags, "rising_limb_too_short"),
-                                     collapse = ";"))))
+                                     collapse = ";"),
+                       prior_doy = prior_doy,
+                       peak_doy_globalmax = doy[pidx_globalmax],
+                       prior_switched = prior_switched,
+                       n_peak_cands = length(pk$cand_idx))))
+  }
+
+  # Is the dormant floor belonging to this peak inside the calendar year at all?
+  rng      <- diff(range(y, na.rm = TRUE))
+  base_gap <- if (is.finite(rng) && rng > 0)
+                (min(y[1:pidx], na.rm = TRUE) - min(y, na.rm = TRUE)) / rng
+              else NA_real_
+  if (is.finite(base_gap) && base_gap >= BASELINE_GAP_MAX) {
+    return(na_row(list(peak_doy = doy[pidx], peak_evi = y[pidx],
+                       n_peaks = pk$n_peaks, second_peak_doy = pk$second_doy,
+                       baseline_gap = base_gap,
+                       flags = paste(c(flags, sprintf("baseline_in_prior_year_gap%.2f",
+                                                      base_gap)),
+                                     collapse = ";"),
+                       prior_doy = prior_doy,
+                       peak_doy_globalmax = doy[pidx_globalmax],
+                       prior_switched = prior_switched,
+                       n_peak_cands = length(pk$cand_idx))))
   }
 
   limb <- 1:pidx
@@ -270,7 +398,11 @@ derive_transitions <- function(doy, y, sof_frac, pen_value,
   if (!br$ok) {
     return(na_row(list(peak_doy = doy[pidx], peak_evi = y[pidx],
                        n_peaks = pk$n_peaks, second_peak_doy = pk$second_doy,
-                       flags = paste(c(flags, "no_pelt_break"), collapse = ";"))))
+                       flags = paste(c(flags, "no_pelt_break"), collapse = ";"),
+                       prior_doy = prior_doy,
+                       peak_doy_globalmax = doy[pidx_globalmax],
+                       prior_switched = prior_switched,
+                       n_peak_cands = length(pk$cand_idx))))
   }
 
   sos_idx  <- br$idx
@@ -298,6 +430,11 @@ derive_transitions <- function(doy, y, sof_frac, pen_value,
     thr_eos_evi = thr_eos, eos_doy = eos,
     thr_sof_evi = thr_sof, sof_doy = sof,
     window_days = if (is.na(eos) || is.na(sof)) NA_real_ else sof - eos,
+    baseline_gap = base_gap,
+    prior_doy = prior_doy,
+    peak_doy_globalmax = doy[pidx_globalmax],
+    prior_switched = prior_switched,
+    n_peak_cands = length(pk$cand_idx),
     flags = paste(flags, collapse = ";")
   )
 }
@@ -427,6 +564,7 @@ if (length(sites) == 0) stop("no sites selected")
 mean_rows   <- list()
 annual_rows <- list()
 curve_rows  <- list()
+prior_audit_rows <- list()
 
 for (site_key in sites) {
   site_df <- ts_all %>% filter(site == site_key)
@@ -462,17 +600,35 @@ for (site_key in sites) {
                                          fitted = mc$fitted, stringsAsFactors = FALSE)
   }
 
-  res <- derive_transitions(mc$doy, mc$fitted, sof_frac, pen_value)
-
-  # ---- per-year arm (2003-2024; joined against the 2015-2024 manual annual
-  #      reference downstream) ------------------------------------------------
+  # ---- seasonal-prior two-pass: collect global-max peaks ---------------------
   yrs <- sort(unique(curves$year))
+  pass1_peaks <- vapply(yrs, function(yy) {
+    cy <- curves %>% filter(year == yy) %>% arrange(doy)
+    if (nrow(cy) < MIN_YEAR_OBS) return(NA_real_)
+    pk <- find_peaks(cy$doy, cy$fitted)
+    if (is.na(pk$primary_idx)) return(NA_real_)
+    cy$doy[pk$primary_idx]
+  }, numeric(1))
+  names(pass1_peaks) <- as.character(yrs)
+
+  # mean-curve prior: circular median of ALL years' global-max peaks
+  prior_mean <- if (SEASONAL_PRIOR_MEAN) circ_median(pass1_peaks) else NA_real_
+
+  res <- derive_transitions(mc$doy, mc$fitted, sof_frac, pen_value,
+                            prior_doy = prior_mean)
+
+  # ---- per-year arm (pass 2: use leave-one-out priors) ----------------------
+  # (2003-2024; joined against the 2015-2024 manual annual reference downstream)
   ann <- lapply(yrs, function(yy) {
     cy <- curves %>% filter(year == yy) %>% arrange(doy)
+    # leave-one-out prior: circ_median of OTHER years' peaks
+    prior_yr <- circ_median(pass1_peaks[names(pass1_peaks) != as.character(yy)])
     r  <- if (nrow(cy) >= MIN_YEAR_OBS) {
-      derive_transitions(cy$doy, cy$fitted, sof_frac, pen_value)
+      derive_transitions(cy$doy, cy$fitted, sof_frac, pen_value,
+                         prior_doy = prior_yr)
     } else {
-      derive_transitions(numeric(0), numeric(0), sof_frac, pen_value)
+      derive_transitions(numeric(0), numeric(0), sof_frac, pen_value,
+                         prior_doy = prior_yr)
     }
     c(list(site_key = site_key, year = yy, veg_type = veg_type,
            pg_end_thrshld = sof_frac * 100, n_obs = nrow(cy),
@@ -481,6 +637,53 @@ for (site_key in sites) {
   })
   ann_df <- bind_rows(lapply(ann, as.data.frame, stringsAsFactors = FALSE))
   annual_rows[[site_key]] <- ann_df
+
+  # ---- seasonal-prior audit (one row per site-year + one for mean curve) ----
+  for (j in seq_len(nrow(ann_df))) {
+    a <- ann_df[j, ]
+    cands_doy <- if (is.finite(a$n_peaks) && a$n_peaks >= 1 && is.finite(a$peak_doy_globalmax)) {
+      paste(c(a$peak_doy_globalmax,
+              if (is.finite(a$second_peak_doy)) a$second_peak_doy else NULL),
+            collapse = ";")
+    } else NA_character_
+    n_yrs_prior <- sum(is.finite(pass1_peaks[names(pass1_peaks) != as.character(a$year)]))
+    prior_audit_rows[[length(prior_audit_rows) + 1]] <- data.frame(
+      site_key = site_key,
+      year = a$year,
+      arm = "annual",
+      n_peak_cands = a$n_peak_cands,
+      cand_doys = cands_doy,
+      prior_doy = a$prior_doy,
+      n_years_in_prior = n_yrs_prior,
+      peak_doy_globalmax = a$peak_doy_globalmax,
+      peak_doy_chosen = a$peak_doy,
+      prior_switched = a$prior_switched,
+      move_days = if (is.finite(a$peak_doy) && is.finite(a$peak_doy_globalmax))
+                    circ_dist(a$peak_doy, a$peak_doy_globalmax) else NA_real_,
+      stringsAsFactors = FALSE
+    )
+  }
+  # mean curve row
+  mean_cands_doy <- if (is.finite(res$n_peaks) && res$n_peaks >= 1 && is.finite(res$peak_doy_globalmax)) {
+    paste(c(res$peak_doy_globalmax,
+            if (is.finite(res$second_peak_doy)) res$second_peak_doy else NULL),
+          collapse = ";")
+  } else NA_character_
+  prior_audit_rows[[length(prior_audit_rows) + 1]] <- data.frame(
+    site_key = site_key,
+    year = NA_integer_,
+    arm = "mean",
+    n_peak_cands = res$n_peak_cands,
+    cand_doys = mean_cands_doy,
+    prior_doy = res$prior_doy,
+    n_years_in_prior = sum(is.finite(pass1_peaks)),
+    peak_doy_globalmax = res$peak_doy_globalmax,
+    peak_doy_chosen = res$peak_doy,
+    prior_switched = res$prior_switched,
+    move_days = if (is.finite(res$peak_doy) && is.finite(res$peak_doy_globalmax))
+                  circ_dist(res$peak_doy, res$peak_doy_globalmax) else NA_real_,
+    stringsAsFactors = FALSE
+  )
 
   res$site_key            <- site_key
   res$veg_type            <- veg_type
@@ -530,16 +733,21 @@ mean_out <- bind_rows(mean_rows) %>%
          n_breaks, n_breaks_trimmed,
          sos_annual_mean, sos_annual_sd, n_years_sos, sos_resolution_days,
          baseline_evi, baseline_evi_at_sos, baseline_n_obs,
-         peak_doy, peak_evi, n_peaks, second_peak_doy, amplitude,
+         peak_doy, peak_evi, n_peaks, second_peak_doy, amplitude, baseline_gap,
          thr_eos_evi, eos_doy, thr_sof_evi, sof_doy, window_days,
          pen_value, min_seg_obs,
          n_pts_dropped_year, n_pts_dropped_range, n_pts_dropped_robust,
-         min_yrs_per_doy, n_doy_dropped_thin, yrs_at_baseline_doy, flags) %>%
+         min_yrs_per_doy, n_doy_dropped_thin, yrs_at_baseline_doy,
+         prior_doy, peak_doy_globalmax, prior_switched, n_peak_cands,
+         flags) %>%
   arrange(site_key)
 annual_out <- bind_rows(annual_rows) %>% arrange(site_key, year)
 
 write_csv(mean_out,   file.path(OUT_DIR, "pelt_transitions_mean_modis.csv"))
 write_csv(annual_out, file.path(OUT_DIR, "pelt_transitions_annual_modis.csv"))
+prior_audit <- bind_rows(prior_audit_rows) %>%
+  arrange(site_key, desc(arm == "mean"), year)
+write_csv(prior_audit, file.path(OUT_DIR, "pelt_seasonal_prior_audit.csv"))
 
 if (opt_dump) {
   curves_out <- bind_rows(curve_rows) %>% arrange(site_key, doy)
@@ -807,11 +1015,22 @@ for (site_key in sites) {
   n_yrs_avail <- length(unique(curves_win$year))
   n_years_thin[[site_key]] <- n_yrs_avail
 
+  # Rebuild the prior from this window's peaks (matching the mean curve's span)
+  pass1_peaks_win <- vapply(MEAN_CURVE_YEARS, function(yy) {
+    cy <- curves_win %>% filter(year == yy) %>% arrange(doy)
+    if (nrow(cy) < MIN_YEAR_OBS) return(NA_real_)
+    pk <- find_peaks(cy$doy, cy$fitted)
+    if (is.na(pk$primary_idx)) return(NA_real_)
+    cy$doy[pk$primary_idx]
+  }, numeric(1))
+  prior_mean_win <- if (SEASONAL_PRIOR_MEAN) circ_median(pass1_peaks_win) else NA_real_
+
   mc <- curves_win %>% group_by(doy) %>%
     summarise(fitted = mean(fitted, na.rm = TRUE), n_yr = n(), .groups = "drop") %>%
     arrange(doy) %>% filter(n_yr >= MIN_YRS_PER_DOY)
 
-  res <- derive_transitions(mc$doy, mc$fitted, sof_frac, pen_value)
+  res <- derive_transitions(mc$doy, mc$fitted, sof_frac, pen_value,
+                            prior_doy = prior_mean_win)
   res$site_key   <- site_key
   res$veg_type   <- veg_type
   res$veg_source <- veg_source
